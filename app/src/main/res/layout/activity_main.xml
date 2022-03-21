@@ -10,7 +10,7 @@
     <org.osmdroid.views.MapView
         android:id="@+id/map"
         android:layout_width="wrap_content"
-        android:layout_height="666dp"
+        android:layout_height="680dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -18,22 +18,22 @@
         app:layout_constraintVertical_bias="0.0" />
 
     <Button
-        android:id="@+id/button3"
+        android:id="@+id/btnPos"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Posición actual"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toEndOf="@+id/button4"
+        app:layout_constraintStart_toEndOf="@+id/btnDelete"
         app:layout_constraintTop_toBottomOf="@+id/map" />
 
     <Button
-        android:id="@+id/button4"
+        android:id="@+id/btnDelete"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Borrar ruta"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toStartOf="@+id/button3"
+        app:layout_constraintEnd_toStartOf="@+id/btnPos"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/map" />
 
