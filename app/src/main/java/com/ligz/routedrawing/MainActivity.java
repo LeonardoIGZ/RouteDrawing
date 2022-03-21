@@ -1,8 +1,18 @@
 package com.ligz.routedrawing;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.NonNull;
+import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
+import android.Manifest;
 import android.content.Context;
+import android.content.pm.PackageManager;
+import android.location.Location;
+import android.os.Build;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.util.Log;
@@ -14,6 +24,12 @@ import com.android.volley.Response;
 import com.android.volley.VolleyError;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.tasks.CancellationToken;
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.android.gms.tasks.OnTokenCanceledListener;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -45,7 +61,10 @@ public class MainActivity extends AppCompatActivity {
     private JsonObjectRequest requestMapRequest;
     private CompassOverlay mCompassOverlay;
     private Button btnPosition, btnDeletePosition;
+    private FusedLocationProviderClient fusedLocationClient;
+    private final double[] currentPos = new double[5];
 
+    @RequiresApi(api = Build.VERSION_CODES.N)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -69,31 +88,25 @@ public class MainActivity extends AppCompatActivity {
 
         map.setMultiTouchControls(true);
 
-        this.mLocationOverlay = new MyLocationNewOverlay(new GpsMyLocationProvider(ctx), map);
-        this.mLocationOverlay.enableMyLocation();
-        map.getOverlays().add(this.mLocationOverlay);
+        validarPermisos();
 
         this.mCompassOverlay = new CompassOverlay(ctx, new InternalCompassOrientationProvider(ctx), map);
         this.mCompassOverlay.enableCompass();
         map.getOverlays().add(this.mCompassOverlay);
 
         IMapController mapController = map.getController();
-        mapController.setZoom(19.0);
-
-        GeoPoint startPoint = new GeoPoint(20.14649016556056,-101.17566401392817);
-        mapController.setCenter(startPoint);
-
-        this.mLocationOverlay = new MyLocationNewOverlay(new GpsMyLocationProvider(ctx), map);
-        this.mLocationOverlay.enableMyLocation();
-        map.getOverlays().add(this.mLocationOverlay);
+        mapController.setZoom(16.0);
 
         mRotationGestureOverlay = new RotationGestureOverlay(ctx, map);
         mRotationGestureOverlay.setEnabled(true);
         map.getOverlays().add(this.mRotationGestureOverlay);
 
+        GeoPoint startPoint = new GeoPoint(20.130216, -101.190957);
+        mapController.setCenter(startPoint);
+
         //your items
         ArrayList<OverlayItem> items = new ArrayList<OverlayItem>();
-        items.add(new OverlayItem("Title", "Description", new GeoPoint(20.14649016556056,-101.17566401392817))); // Lat/Lon decimal degrees
+        items.add(new OverlayItem("Title", "Description", new GeoPoint(20.130216, -101.190957)));
 
         //the overlay
         ItemizedOverlayWithFocus<OverlayItem> mOverlay = new ItemizedOverlayWithFocus<OverlayItem>(items,
@@ -111,27 +124,20 @@ public class MainActivity extends AppCompatActivity {
                 }, ctx);
         mOverlay.setFocusItemsOnTap(true);
 
-        //map.getOverlays().add(mOverlay);
-
-        //Añadir un marcador
-        Marker startMarker = new Marker(map);
-
-        startMarker.setPosition(startPoint);
-        startMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
-        map.getOverlays().add(startMarker);
-
         btnPosition = findViewById(R.id.btnPos);
-        btnDeletePosition = findViewById(R.id.btnDelete);
-
         btnPosition.setOnClickListener(view -> {
-            GeoPoint geoPoint = new GeoPoint(20.14649016556056,-101.17566401392817);
+            GeoPoint geoPoint = new GeoPoint(currentPos[0], currentPos[1]);
             mapController.setCenter(geoPoint);
-            obtenerRouteFromMapRequest();
+            obtenerRouteFromMapRequest(geoPoint);
         });
 
+        btnDeletePosition = findViewById(R.id.btnDelete);
         btnDeletePosition.setOnClickListener(view -> {
-            map.getOverlays().clear();
+            map.getOverlays().remove(map.getOverlays().size() - 1);
+            map.getOverlays().remove(map.getOverlays().size() - 1);
+
         });
+        ultimaUbicacion();
     }
 
     @Override
@@ -142,6 +148,7 @@ public class MainActivity extends AppCompatActivity {
         //SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         //Configuration.getInstance().load(this, PreferenceManager.getDefaultSharedPreferences(this));
         map.onResume(); //needed for compass, my location overlays, v6.0.0 and up
+        ultimaUbicacion();
     }
 
     @Override
@@ -152,20 +159,21 @@ public class MainActivity extends AppCompatActivity {
         //SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         //Configuration.getInstance().save(this, prefs);
         map.onPause();  //needed for compass, my location overlays, v6.0.0 and up
+        ultimaUbicacion();
     }
 
-    private void obtenerRouteFromMapRequest() {
+    private void obtenerRouteFromMapRequest(GeoPoint geoPoint) {
         List<GeoPoint> puntosRuta = new ArrayList<>();
         queue =
                 Volley.newRequestQueue(this);
 
         requestMapRequest =
                 new JsonObjectRequest(
-                        "http://www.mapquestapi.com/directions/v2/route?key=3DAfWsMIWwkEfW0XdH9hU6HufelHBhI1&from=20.14649016556056,-101.17566401392817&to=20.126496094732943,-101.19317063853653",
+                        "http://www.mapquestapi.com/directions/v2/route?key=3DAfWsMIWwkEfW0XdH9hU6HufelHBhI1&from=" + geoPoint.getLatitude() + "," + geoPoint.getLongitude() + "&to=20.140419, -101.150584",
                         new Response.Listener<JSONObject>() {
                             @Override
                             public void onResponse(JSONObject response) {
-                                Log.d("GIVO", "se ejecuto");
+                                Log.d("LIGZ", "se ejecuto");
                                 try {
                                     JSONArray indicaiones = response.getJSONObject("route")
                                             .getJSONArray("legs")
@@ -180,8 +188,7 @@ public class MainActivity extends AppCompatActivity {
                                                 indi.getJSONObject("startPoint").get("lng").toString();
 
 
-
-                                        Log.d("GIVO", "se ejecuto: " + strlatlog);
+                                        Log.d("LIGZ", "se ejecuto: " + strlatlog);
                                         puntosRuta.add(new GeoPoint(Double.parseDouble(indi.getJSONObject("startPoint").get("lat").toString()),
                                                 Double.parseDouble(indi.getJSONObject("startPoint").get("lng").toString())));
 
@@ -197,19 +204,25 @@ public class MainActivity extends AppCompatActivity {
                         new Response.ErrorListener() {
                             @Override
                             public void onErrorResponse(VolleyError error) {
-                                Log.d("GIVO", "se ejecuto CON ERROR");
+                                Log.d("LIGZ", "se ejecuto CON ERROR");
 
                             }
                         }
                 );
 
         queue.add(requestMapRequest);
-        Log.d("GIVO", "se ejecuto antes que los puntos");
     }
 
     private void dibujarPolilinea(List<GeoPoint> geoPoints) {
+        GeoPoint startPoint = new GeoPoint(currentPos[0], currentPos[1]);
 
-        Polyline line = new Polyline();   //see note below!
+        //Añadir un marcador
+        Marker startMarker = new Marker(map);
+        startMarker.setPosition(startPoint);
+        startMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
+        map.getOverlays().add(startMarker);
+
+        Polyline line = new Polyline();
         line.setPoints(geoPoints);
         line.setOnClickListener(new Polyline.OnClickListener() {
             @Override
@@ -222,8 +235,112 @@ public class MainActivity extends AppCompatActivity {
 
         IMapController mapController = map.getController();
         mapController.setZoom(17.0);
-        GeoPoint startPoint = new GeoPoint(20.14649016556056,-101.17566401392817);
         mapController.setCenter(startPoint);
 
     }
+
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    private void validarPermisos() {
+        if (ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_COARSE_LOCATION) !=
+                PackageManager.PERMISSION_GRANTED
+                &&
+                ContextCompat.checkSelfPermission(
+                        this, Manifest.permission.ACCESS_FINE_LOCATION) !=
+                        PackageManager.PERMISSION_GRANTED
+        ) {
+            // You can use the API that requires the permission.
+            solicitarPermiso();
+        }
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    private void solicitarPermiso() {
+        ActivityResultLauncher<String[]> locationPermissionRequest =
+
+                registerForActivityResult(new ActivityResultContracts
+                                .RequestMultiplePermissions(),
+                        result -> {
+                            Boolean fineLocationGranted = result.getOrDefault(
+                                    Manifest.permission.ACCESS_FINE_LOCATION, false);
+                            Boolean coarseLocationGranted = result.getOrDefault(
+                                    Manifest.permission.ACCESS_COARSE_LOCATION, false);
+
+                        }
+                );
+
+        // Before you perform the actual permission request, check whether your app
+        // already has the permissions, and whether your app needs to show a permission
+        // rationale dialog. For more details, see Request permissions.
+        locationPermissionRequest.launch(new String[]{
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+        });
+
+    }
+
+    private void ultimaUbicacion() {
+
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return;
+        }
+
+        fusedLocationClient.getLastLocation().addOnSuccessListener(new OnSuccessListener<Location>() {
+
+            @Override
+            public void onSuccess(Location location) {
+                // Got last known location. In some rare situations this can be null.
+                if (location != null) {
+                    // Logic to handle location object
+                    String loca = location.getLatitude() + ", " + location.getLongitude();
+                    Log.d("UBIX", loca);
+                    Toast.makeText(getApplicationContext(), loca,
+                            Toast.LENGTH_SHORT).show();
+                    currentPos[0] = location.getLatitude();
+                    currentPos[1] = location.getLongitude();
+                }
+            }
+        });
+
+        fusedLocationClient.getCurrentLocation(LocationRequest.PRIORITY_HIGH_ACCURACY,
+                new CancellationToken() {
+                    @NonNull
+                    @Override
+                    public CancellationToken onCanceledRequested(@NonNull OnTokenCanceledListener onTokenCanceledListener) {
+                        return null;
+                    }
+
+                    @Override
+                    public boolean isCancellationRequested() {
+                        return false;
+                    }
+                }
+        ).addOnSuccessListener(this, new OnSuccessListener<Location>() {
+            @Override
+            public void onSuccess(Location location) {
+                // Got last known location. In some rare situations this can be null.
+                if (location != null) {
+                    // Logic to handle location object
+                    String loca = location.getLatitude() + ", " + location.getLongitude();
+                    Log.d("UBIXC", loca);
+                    Toast.makeText(getApplicationContext(), loca,
+                            Toast.LENGTH_SHORT).show();
+                    currentPos[0] = location.getLatitude();
+                    currentPos[1] = location.getLongitude();
+                }
+            }
+        });
+
+        return;
+    }
+
+
 }
